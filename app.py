@@ -252,10 +252,9 @@ class VideoCutter(QMainWindow):
         self.update_navigation_buttons()
 
     def release_video(self):
-        self.timer.stop()
+        self.stop_playback()
         self.hold_timer.stop()
         self.held_action = None
-        self.is_playing = False
         if self.cap is not None:
             self.cap.release()
         self.cap = None
@@ -268,16 +267,24 @@ class VideoCutter(QMainWindow):
         self.play_btn.setText("Lecture")
         self.update_info()
 
+    def stop_playback(self):
+        self.timer.stop()
+        self.is_playing = False
+        self.play_btn.setText("Lecture")
+
     def show_frame(self, frame_number):
         if self.cap is None:
-            return
+            return False
 
         frame_number = max(0, min(int(frame_number), self.total_frames - 1))
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
         ok, frame = self.cap.read()
         if not ok:
-            self.show_error("Impossible de lire cette frame.")
-            return
+            if frame_number >= self.current_frame:
+                self.handle_unreadable_video_end(frame_number)
+            else:
+                self.show_error("Impossible de lire cette frame.")
+            return False
 
         self.current_frame = frame_number
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -291,6 +298,22 @@ class VideoCutter(QMainWindow):
         self.timeline.blockSignals(True)
         self.timeline.setValue(frame_number)
         self.timeline.blockSignals(False)
+        self.update_info()
+        return True
+
+    def handle_unreadable_video_end(self, failed_frame):
+        self.stop_playback()
+        if failed_frame <= 0:
+            self.show_error("Impossible de lire cette frame.")
+            return
+
+        self.total_frames = min(self.total_frames, failed_frame)
+        self.current_frame = min(self.current_frame, self.total_frames - 1)
+        self.timeline.blockSignals(True)
+        self.timeline.setMaximum(max(0, self.total_frames - 1))
+        self.timeline.setValue(self.current_frame)
+        self.timeline.blockSignals(False)
+        self.statusBar().showMessage("Fin de la vidéo")
         self.update_info()
 
     def resizeEvent(self, event):
@@ -374,9 +397,7 @@ class VideoCutter(QMainWindow):
         if self.cap is None:
             return
         if self.is_playing:
-            self.timer.stop()
-            self.is_playing = False
-            self.play_btn.setText("Lecture")
+            self.stop_playback()
             return
 
         interval = max(1, int(1000 / self.fps))
@@ -392,9 +413,7 @@ class VideoCutter(QMainWindow):
         if self.cap is None:
             return
         if self.current_frame >= self.total_frames - 1:
-            self.timer.stop()
-            self.is_playing = False
-            self.play_btn.setText("Lecture")
+            self.stop_playback()
             return
         self.show_frame(self.current_frame + 1)
 
